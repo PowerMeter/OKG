@@ -39,22 +39,18 @@
 //------------------------------------------------------------------------------------------------------
 // Ethernet Config
 //------------------------------------------------------------------------------------------------------
-//byte mac[] = { 0x00, 0xAB, 0xBB, 0xCC, 0xDE, 0x02 };  // OKG MAC - experiment with different MAC addresses if you have trouble connecting 
 byte mac[] = { 0x00, 0x10, 0x95, 0xDE, 0xAD, 0x07 };  // OKG MAC - sample 1 
-//byte mac[] = { 0x94, 0xCE, 0x2C, 0x3A, 0x08, 0x7F };  // OKG MAC - sample 2 
-//byte mac[] = { 0x30, 0x85, 0xA9, 0x4A, 0x27, 0xC7 };  // OKG MAC - sample 3 
-//byte mac[] = { 0x0F, 0xAB, 0xBB, 0xCC, 0xDE, 0xAD };  // OKG MAC - sample 4
 
 byte ip[] = { 10, 0, 0, 14 };                       // OKG static IP - only used if DHCP fails
 byte gateway[] = { 10, 0, 0, 254 };
 byte subnet[] = { 255, 255, 255, 0 };
 
 
-char apiurl[] = "http://powermeter.ie/mypowerbase/api/post.json?apikey=92a5b8a542bddb938ba5100bb4fa360f";
-char timeurl[] = "http://powermeter.ie/mypowerbase/time/local.json?apikey=92a5b8a542bddb938ba5100bb4fa360f";
+char apiurl[] = "http://serverdetails.../api/post.json?apikey=MYAPIKEY";
+char timeurl[] = "http://serverdetails.../time/local.json?apikey=MYAPIKEY";
 // For posting to emoncms server with host name, (DNS lookup) comment out if using static IP address below
 // emoncms.org is the public emoncms server. Emoncms can also be downloaded and run on any server.
-char server[] = "powermeter.ie";     
+char server[] = "myserver.com";     
 
 //IPAddress server(xxx,xxx,xxx,xxx);                  // emoncms server IP for posting to server without a host name, can be used for posting to local emoncms server
 
