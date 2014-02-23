@@ -1,0 +1,279 @@
+#include <avr/wdt.h>
+#include <avr/pgmspace.h>
+#undef PROGMEM 
+#define PROGMEM __attribute__(( section(".progmem.data") )) 
+#undef PSTR 
+#define PSTR(s) (__extension__({static prog_char __c[] PROGMEM = (s); &__c[0];})) 
+#include <WiFlyHQ.h>
+#include <JeeLib.h>
+#include <SoftwareSerial.h>
+SoftwareSerial ftdiSerial(5,6);
+//#define SERIALPRINT								// include print statement for commissioning - comment this line to exclude
+
+// RFM12B Wireless Config
+
+#define MYNODE 17            // node ID of OKG (Change in print statement below also!)
+#define freq RF12_433MHZ     // frequency - must match RFM12B module and emonTx
+#define group 210            // network group - must match emonTx (Change in print statement below also!)
+
+// RN-XV wifi Config & MyPowerBase
+
+WiFly wifly;
+
+/* Change these to match your WiFi network */
+const char mySSID[] = "SSID WithSpace";
+const char myPassword[] = "P@ssword";
+char apiurl[] = "http://powermeter.ie/mypowerbase/api/post.json?apikey=APIKEY&json=";
+const char site[] = "powermeter.ie";
+
+void terminal();
+void print_P(const prog_char *str);
+void println_P(const prog_char *str);
+
+// Open Kontrol Gateway Config
+
+const int LEDpin=17;         //front status LED on OKG
+
+// The PacketBuffer class is used to generate the json string that is send via ethernet - JeeLabs
+
+class PacketBuffer : public Print {
+public:
+    PacketBuffer () : fill (0) {}
+    const char* buffer() { return buf; }
+    byte length() { return fill; }
+    void reset()
+    { 
+      memset(buf,NULL,sizeof(buf));
+      fill = 0; 
+    }
+    virtual size_t write (uint8_t ch)
+        { if (fill < sizeof buf) buf[fill++] = ch; }
+    byte fill;
+    char buf[150];
+    private:
+};
+PacketBuffer str;
+
+int data_ready, rf_error;
+unsigned long last_rf, reboot_timer;
+int resetCounter, reboot_count = 0;
+
+// SETUP
+
+void setup() {
+    char buf[32];
+    ftdiSerial.begin(9600);
+    #ifdef SERIALPRINT
+      println_P(PSTR("Starting-ID 17:Net Grp 210"));
+      print_P(PSTR("Free memory: "));
+    ftdiSerial.println(wifly.getFreeMemory(),DEC);
+    #endif
+    pinMode(LEDpin, OUTPUT);
+    digitalWrite(LEDpin,HIGH);
+  
+    rf12_set_cs(9);                                                 //RFM12B CS connnected to Dig 9 on OKG - change to 10 for JeeNode/emonTx ...
+    rf12_initialize(MYNODE, freq,group);
+    last_rf = millis()-40000;                                       // setting lastRF back 40s is useful as it forces the ethernet code to run straight away
+ 
+    Serial.begin(9600);
+    if (!wifly.begin(&Serial, &ftdiSerial)) {
+            #ifdef SERIALPRINT
+              println_P(PSTR("Failed to start wifly"));
+            #endif
+	wifly.reboot();
+        terminal();
+    }
+
+    /* Join wifi network if not already associated */
+    if (!wifly.isAssociated()) {
+	/* Setup the WiFly to connect to a wifi network */
+	    #ifdef SERIALPRINT
+               println_P(PSTR("Joining network"));
+            #endif
+	wifly.setSSID(mySSID);
+	wifly.setPassphrase(myPassword);
+	wifly.enableDHCP();
+
+	if (wifly.join()) {
+	        #ifdef SERIALPRINT
+                   println_P(PSTR("Joined wifi network"));
+                #endif
+	} else {
+	        #ifdef SERIALPRINT
+                   println_P(PSTR("Failed to join wifi network"));
+                #endif
+	    terminal();
+	}
+    } else {
+            #ifdef SERIALPRINT
+               println_P(PSTR("Already joined network"));
+            #endif
+    }
+    //terminal();
+
+    #ifdef SERIALPRINT
+      print_P(PSTR("MAC: "));
+      ftdiSerial.println(wifly.getMAC(buf, sizeof(buf)));
+      print_P(PSTR("IP: "));
+      ftdiSerial.println(wifly.getIP(buf, sizeof(buf)));
+      print_P(PSTR("Netmask: "));
+      ftdiSerial.println(wifly.getNetmask(buf, sizeof(buf)));
+      print_P(PSTR("Gateway: "));
+      ftdiSerial.println(wifly.getGateway(buf, sizeof(buf)));
+      print_P(PSTR("SSID: "));
+      ftdiSerial.println(wifly.getSSID(buf, sizeof(buf)));
+    #endif
+      wifly.setDeviceID("Wifly-WebClient");
+    #ifdef SERIALPRINT   
+      print_P(PSTR("DeviceID: "));
+      ftdiSerial.println(wifly.getDeviceID(buf, sizeof(buf)));
+    #endif
+    if (wifly.isConnected()) {
+    #ifdef SERIALPRINT
+        println_P(PSTR("Old connection active. Closing"));
+      #endif
+	wifly.close();
+    }
+
+    if (wifly.open(site, 80)) {
+      #ifdef SERIALPRINT
+        print_P(PSTR("Connected to "));
+	ftdiSerial.println(site);
+      #endif
+    }
+     wdt_enable(WDTO_8S);                //enable an 8's reset watchdog
+}
+
+void loop() {
+
+  // 1) Receive date from emonTx via RFM12B
+    wdt_reset();
+   reboot_count = millis(); 
+  if (rf12_recvDone()){      
+      if (rf12_crc == 0 && (rf12_hdr & RF12_HDR_CTL) == 0)
+      {
+        int node_id = (rf12_hdr & 0x1F);
+        byte n = rf12_len;
+         
+        str.reset();
+        str.print("{&node=");  str.print(node_id);
+        str.print("&csv=");
+        for (byte i=0; i<n; i+=2)
+        {
+          int num = ((unsigned char)rf12_data[i+1] << 8 | (unsigned char)rf12_data[i]);
+          if (i) str.print(",");
+          str.print(num);
+        }
+
+        str.print("\0");  //  End of json string
+        data_ready = 1; 
+        last_rf = millis(); 
+        //ftdiSerial.println("rf12_recvDone");
+        rf_error=0;
+      }
+  }
+  
+  // 2) If no data is recieved from rf12 emoncms is updated every 30s with RFfail = 1 indicator for debugging
+
+  if ((millis()-last_rf)>30000)
+  {
+    last_rf = millis();                                                 // reset lastRF timer
+    str.reset();                                                        // reset json string
+    str.print("{rf_Node220_fail:220");                                  // No RF received in 30 seconds so send failure 
+    data_ready = 1;                                                     // Ok, data is ready
+    rf_error=1;
+  }
+  
+  if ((millis()-reboot_timer)>3600000)
+  {
+    reboot_timer = millis();                                             // reset reboot timer
+    str.reset();                                                         // reset json string
+    str.print("{reboot:");      
+    str.println(reboot_count);
+    reboot_count++;                                                     
+    delay(10000);
+  }
+  
+  // 3) Post Data
+
+  if (data_ready)
+      
+  {
+     if (wifly.isConnected()) {
+           #ifdef SERIALPRINT
+             ftdiSerial.println("Old connection active. Closing....");
+           #endif
+	wifly.close();
+     }
+
+     if (wifly.open(site, 80)) {
+        /* Send the request */
+        str.print("}\0");
+        #ifdef SERIALPRINT
+          ftdiSerial.print("Connected to ");
+	  ftdiSerial.println(site);
+          ftdiSerial.print("Free memory: ");
+          ftdiSerial.println(wifly.getFreeMemory(),DEC);
+          ftdiSerial.print("Sent: "); ftdiSerial.println(str.buf);
+	#endif
+        resetCounter ++;
+	wifly.print("GET "); wifly.print(apiurl); wifly.print(str.buf);
+	wifly.println();
+        delay (300);
+  }
+      data_ready=0;
+      digitalWrite(LEDpin,LOW);		  // turn off status LED to indicate succesful data receive and online posting
+    } else {
+    wifly.begin(&Serial, &ftdiSerial);}
+    
+    if (resetCounter > 10) {//  ftdiSerial.println("Reset Triggered just now");
+                            delay(10000);
+                           }
+
+ // 4) Read Reply 
+
+    if (wifly.available() > 0) {
+	char ch = wifly.read();
+	ftdiSerial.write(ch);
+	if (ch == '\n') {
+	    /* add a carriage return */ 
+	    ftdiSerial.write('\r');
+	}
+    }
+
+    if (ftdiSerial.available() > 0) {
+	wifly.write(ftdiSerial.read());
+    } 
+
+}//end loop
+
+
+/* Connect the WiFly serial to the serial monitor. */
+void terminal()
+{
+    while (1) {
+	if (wifly.available() > 0) {
+	    ftdiSerial.write(wifly.read());
+	}
+
+
+	if (ftdiSerial.available() > 0) {
+	    wifly.write(ftdiSerial.read());
+	}
+    }
+}
+
+/* Print a string from program memory */
+void print_P(const prog_char *str)
+{
+    char ch;
+    while ((ch=pgm_read_byte(str++)) != 0) {
+	ftdiSerial.write(ch);
+    }
+}
+
+void println_P(const prog_char *str)
+{
+    print_P(str);
+    ftdiSerial.println();
+}
