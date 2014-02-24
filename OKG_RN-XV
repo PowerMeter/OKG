@@ -14,16 +14,16 @@ SoftwareSerial ftdiSerial(5,6);
 
 #define MYNODE 17            // node ID of OKG (Change in print statement below also!)
 #define freq RF12_433MHZ     // frequency - must match RFM12B module and emonTx
-#define group 210            // network group - must match emonTx (Change in print statement below also!)
+#define group 220            // network group - must match emonTx (Change in print statement below also!)
 
 // RN-XV wifi Config & MyPowerBase
 
 WiFly wifly;
 
 /* Change these to match your WiFi network */
-const char mySSID[] = "SSID WithSpace";
-const char myPassword[] = "P@ssword";
-char apiurl[] = "http://powermeter.ie/mypowerbase/api/post.json?apikey=APIKEY&json=";
+const char mySSID[] = "SSID";
+const char myPassword[] = "PASSWD";
+char apiurl[] = "http://powermeter.ie/mypowerbase/api/post.json?apikey&json=";
 const char site[] = "powermeter.ie";
 
 void terminal();
@@ -141,7 +141,15 @@ void setup() {
 	ftdiSerial.println(site);
       #endif
     }
-     wdt_enable(WDTO_8S);                //enable an 8's reset watchdog
+	/* Send the request */
+	//wifly.println("GET / HTTP/1.0");
+	//wifly.println();
+    /*} else {
+      #ifdef SERIALPRINT
+        println_P(PSTR("Failed to connect"));
+      #endif
+    }*/
+      wdt_enable(WDTO_8S);                //enable an 8's reset watchdog
 }
 
 void loop() {
@@ -152,6 +160,7 @@ void loop() {
   if (rf12_recvDone()){      
       if (rf12_crc == 0 && (rf12_hdr & RF12_HDR_CTL) == 0)
       {
+        digitalWrite(LEDpin,HIGH);
         int node_id = (rf12_hdr & 0x1F);
         byte n = rf12_len;
          
@@ -165,7 +174,6 @@ void loop() {
           str.print(num);
         }
 
-        str.print("\0");  //  End of json string
         data_ready = 1; 
         last_rf = millis(); 
         //ftdiSerial.println("rf12_recvDone");
@@ -175,22 +183,14 @@ void loop() {
   
   // 2) If no data is recieved from rf12 emoncms is updated every 30s with RFfail = 1 indicator for debugging
 
-  if ((millis()-last_rf)>30000)
-  {
-    last_rf = millis();                                                 // reset lastRF timer
-    str.reset();                                                        // reset json string
-    str.print("{rf_Node220_fail:220");                                  // No RF received in 30 seconds so send failure 
-    data_ready = 1;                                                     // Ok, data is ready
-    rf_error=1;
-  }
-  
-  if ((millis()-reboot_timer)>3600000)
+  if ((millis()-reboot_timer)>600000)
   {
     reboot_timer = millis();                                             // reset reboot timer
     str.reset();                                                         // reset json string
     str.print("{reboot:");      
     str.println(reboot_count);
-    reboot_count++;                                                     
+    reboot_count++;                  
+    data_ready = 1;                                                     // Ok, data is ready    
     delay(10000);
   }
   
@@ -219,16 +219,12 @@ void loop() {
         resetCounter ++;
 	wifly.print("GET "); wifly.print(apiurl); wifly.print(str.buf);
 	wifly.println();
+      }
+      } else { ; }
+        data_ready=0;
+        digitalWrite(LEDpin,LOW);		  // turn off status LED to indicate succesful data receive and online posting
         delay (300);
-  }
-      data_ready=0;
-      digitalWrite(LEDpin,LOW);		  // turn off status LED to indicate succesful data receive and online posting
-    } else {
-    wifly.begin(&Serial, &ftdiSerial);}
-    
-    if (resetCounter > 10) {//  ftdiSerial.println("Reset Triggered just now");
-                            delay(10000);
-                           }
+        if (resetCounter > 10) {delay(10000);}
 
  // 4) Read Reply 
 
@@ -238,12 +234,12 @@ void loop() {
 	if (ch == '\n') {
 	    /* add a carriage return */ 
 	    ftdiSerial.write('\r');
-	}
-    }
+	   }
+     }
 
     if (ftdiSerial.available() > 0) {
 	wifly.write(ftdiSerial.read());
-    } 
+     } 
 
 }//end loop
 
