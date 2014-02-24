@@ -1,4 +1,12 @@
-#include <avr/wdt.h>
+/*  Credits:
+  Based on the work of the openenergymonitor.org project
+  Licence: GNU GPL V3  Authors: Trystan Lea and Glyn Hudson 
+  https://github.com/openenergymonitor/Open-Kontrol-Gateway/blob/master/OKG_RN_XV_Wifi_RFM12B_emoncms/OKG_RN_XV_Wifi_RFM12B_emoncms.ino
+  Based on Arduino DNS and DHCP-based Web client by David A. Mellis
+  modified 12 April 2011by Tom Igoe, based on work by Adrian McEwen
+  Uses Jeelabs.org JeeLib library for RFM12B 
+*/  
+  #include <avr/wdt.h>
 #include <avr/pgmspace.h>
 #undef PROGMEM 
 #define PROGMEM __attribute__(( section(".progmem.data") )) 
